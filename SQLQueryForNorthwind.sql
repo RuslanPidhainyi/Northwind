@@ -377,5 +377,157 @@ SELECT dbo.TotalCost_F(11005)
 
 /*******************************************************************************************************************************************************/
 
+--Zad.11 (Procedura do zad.10)
+
+CREATE OR ALTER PROCEDURE TotalCost_P(@ID INT)
+	AS 
+	SELECT SUM(O.UnitPrice * O.Quantity) AS TotalCost
+	FROM [Order Details] O
+	WHERE O.OrderID = @id
+
+EXEC TotalCost_P 11005 
+
+/*******************************************************************************************************************************************************/
+--Derived tables / pochodny tabeli
+SELECT * FROM Products
+
+/*
+Derived Tables (похідні таблиці) у SQL використовуються для створення тимчасових результатів, які можна використовувати в рамках одного запиту.
+Вони дозволяють виконувати обчислення, агрегації, сортування або фільтрацію даних на рівні підзапитів і передавати ці проміжні результати у зовнішній запит.
+*/
+
+-- Функція ROW_NUMBER() створює унікальні номери для кожного рядка у результаті запиту 
+
+/*
+OVER() - Ключове слово OVER визначає, як ROW_NUMBER() буде застосовуватись до даних. У цьому випадку у функції є дві частини
+
+a) PARTITION BY categoryid
+	PARTITION BY визначає розбиття (групування) даних \ Ключове слово PARTITION BY використовується для поділу даних на групи.
+	У цьому запиті дані розбиваються на групи за значенням categoryid.
+	
+	Наприклад:
+	Якщо в таблиці є 3 категорії (categoryid = 1, 2, 3), то всі продукти з categoryid = 1 будуть в одній групі, 
+	всі з categoryid = 2 — в іншій, і так далі.
+
+
+b) ORDER BY unitprice, productid
+	Всередині кожної групи (categoryid) рядки впорядковуються за:
+	unitprice (ціна за одиницю) у зростаючому порядку.
+	Якщо кілька рядків мають однаковий unitprice, вони додатково впорядковуються за productid (ідентифікатор продукту).
+	
+	Упорядкування визначає, який рядок отримає номер 1, 2, 3 і так далі
+*/
+
+
+/*
+AS rownum
+	Функція ROW_NUMBER() обчислює номер рядка в кожній групі.
+	Цей результат зберігається в новій колонці з псевдонімом rownum.
+*/
+
+/*
+наступний запит, який обчислює номери рядків для продуктів, розбитих за categoryid, і впорядкованих за unitprice та productid
+*/
+
+SELECT ROW_NUMBER() OVER
+(PARTITION BY categoryId
+ORDER BY unitPrice, productId) AS RowNum,
+categoryId, productId, productName, unitPrice
+FROM Products
+
+/*
+наступний запит, який обчислює номери рядків для продуктів, розбитих за categoryid, і впорядкованих за unitprice та productid
+якщо ви хочете повернути тільки ті рядки, де номер рядка менше або дорівнює 2; 
+тобто в кожній категорії повернути два продукти з найменшими цінами
+*/
+SELECT categoryid, productid, productname, unitprice
+FROM 
+(SELECT ROW_NUMBER() OVER 
+(PARTITION BY categoryid ORDER BY unitprice, productid) AS rownum,
+categoryid, productid, productname, unitprice 
+FROM Products) AS D
+WHERE rownum <= 2;
+
+
+
+
+/*
+3. Вкладені похідні таблиці
+Припустимо, ми хочемо знайти найдешевший продукт у кожній категорії, а потім ще раз перевірити умови на обрані результати. Ось як це може виглядати:
+*/
+
+/*
+Існують кілька проблемних аспектів при роботі з похідними таблицями:
+Одна проблема виникає, коли потрібно посилатися на одну похідну таблицю з іншої. 
+У такому випадку ви можете опинитися в ситуації вкладення похідних таблиць, що ускладнює логіку та підвищує ймовірність помилок.
+
+Загальна форма вкладення виглядає так:
+
+SELECT ...
+FROM (SELECT ...
+      FROM (SELECT ...
+            FROM T1
+            WHERE ...) AS D1
+      WHERE ...) AS D2
+WHERE ...;
+
+*/
+
+-- Зовнішній SELECT вибирає дані з другої похідної таблиці
+SELECT *
+FROM (
+    -- Перша похідна таблиця фільтрує найдешевші продукти у кожній категорії
+    SELECT CategoryID, ProductID, ProductName, UnitPrice
+    FROM (
+        -- Внутрішній запит додає ROW_NUMBER() для нумерації продуктів у кожній категорії
+        SELECT 
+            ROW_NUMBER() OVER (PARTITION BY CategoryID ORDER BY UnitPrice) AS RowNum,
+            CategoryID,
+            ProductID,
+            ProductName,
+            UnitPrice
+        FROM Products
+    ) AS D1
+    WHERE RowNum = 1 -- Залишаємо тільки найдешевший продукт у кожній категорії
+) AS D2
+WHERE UnitPrice < 10.00; -- Додаткова фільтрація: вибираємо найдешевші продукти з ціною менше 10
+
+/*
+Інша проблема пов'язана з властивістю "все-одночасно" SQL. 
+Усі вирази, які з'являються в одній і тій самій фазі обробки запиту, концептуально обчислюються одночасно. 
+У результаті ім'я похідної таблиці не видно іншим елементам тієї ж фази.
+
+Наприклад, якщо потрібно з'єднати кілька екземплярів однієї похідної таблиці, необхідно повторити код:
+
+SELECT ...
+FROM (SELECT ...
+      FROM T1) AS D1
+INNER JOIN 
+     (SELECT ...
+      FROM T1) AS D2
+ON ...;
+
+*/
+
+SELECT *
+FROM (
+    SELECT 
+        p.ProductID,
+        p.ProductName,
+        p.UnitPrice,
+        c.CategoryID,
+        c.CategoryName,
+        ROW_NUMBER() OVER (
+            PARTITION BY c.CategoryID 
+            ORDER BY p.UnitPrice ASC
+        ) AS RowNum
+    FROM Products p
+    INNER JOIN Categories c ON p.CategoryID = c.CategoryID
+) AS RankedProducts
+WHERE RowNum <= 2;
+
+
+/*******************************************************************************************************************************************************/
+
 --CTE
 --VIEW
